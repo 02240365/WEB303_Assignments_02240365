@@ -72,11 +72,11 @@ Each service follows the same simple layering: **`main.go`** (wiring & config) â
 
 ## How to run
 
-**Requirement:** Docker Desktop (or Docker Engine + Compose v2). Nothing else.
+**Requirement:** Docker Desktop (or Docker Engine with Docker Compose v2 or newer). Nothing else.
 
 ```bash
-git clone <this-repo-url>
-cd druk-trek-permits
+git clone https://github.com/02240365/WEB303_Assignments_02240365.git
+cd WEB303_Assignments_02240365/druk-trek-permits
 docker compose up --build
 ```
 
