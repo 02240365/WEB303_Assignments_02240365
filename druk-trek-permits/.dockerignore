@@ -1,0 +1,7 @@
+# Keep the Docker build context small: only source code is needed.
+.git
+.env
+postman/
+docs/
+*.md
+*.zip

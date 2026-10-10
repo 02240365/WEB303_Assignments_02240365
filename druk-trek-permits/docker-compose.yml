@@ -1,0 +1,118 @@
+# =============================================================================
+# Druk Trek Permit System — start everything with:   docker compose up --build
+#
+#   Postman ──REST──► api-gateway ──gRPC──► permit-service ──gRPC──► route-service
+#                          │                      │                      │
+#                          └──────gRPC────────────┼──────────────────────┘
+#                                                 ▼                      ▼
+#                                             permit-db              route-db
+#
+# Each service has its OWN PostgreSQL container (Database per Service).
+# All values come from the .env file next to this file.
+# Only the gateway port is published to the host; everything else stays on the
+# private "trek-net" network.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------- databases
+  route-db:
+    image: postgres:16-alpine
+    container_name: route-db
+    environment:
+      POSTGRES_DB: ${ROUTE_DB_NAME}
+      POSTGRES_USER: ${ROUTE_DB_USER}
+      POSTGRES_PASSWORD: ${ROUTE_DB_PASSWORD}
+    volumes:
+      - route-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ROUTE_DB_USER} -d ${ROUTE_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [trek-net]
+
+  permit-db:
+    image: postgres:16-alpine
+    container_name: permit-db
+    environment:
+      POSTGRES_DB: ${PERMIT_DB_NAME}
+      POSTGRES_USER: ${PERMIT_DB_USER}
+      POSTGRES_PASSWORD: ${PERMIT_DB_PASSWORD}
+    volumes:
+      - permit-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PERMIT_DB_USER} -d ${PERMIT_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [trek-net]
+
+  # ---------------------------------------------------------------- Service B
+  route-service:
+    build:
+      context: .
+      dockerfile: route-service/Dockerfile
+    container_name: route-service
+    environment:
+      ROUTE_GRPC_PORT: ${ROUTE_GRPC_PORT}
+      DB_HOST: route-db          # can ONLY reach its own database
+      DB_PORT: "5432"
+      DB_NAME: ${ROUTE_DB_NAME}
+      DB_USER: ${ROUTE_DB_USER}
+      DB_PASSWORD: ${ROUTE_DB_PASSWORD}
+    depends_on:
+      route-db:
+        condition: service_healthy
+    networks: [trek-net]
+
+  # ---------------------------------------------------------------- Service A
+  permit-service:
+    build:
+      context: .
+      dockerfile: permit-service/Dockerfile
+    container_name: permit-service
+    environment:
+      PERMIT_GRPC_PORT: ${PERMIT_GRPC_PORT}
+      ROUTE_SERVICE_ADDR: route-service:${ROUTE_GRPC_PORT}
+      DB_HOST: permit-db         # can ONLY reach its own database
+      DB_PORT: "5432"
+      DB_NAME: ${PERMIT_DB_NAME}
+      DB_USER: ${PERMIT_DB_USER}
+      DB_PASSWORD: ${PERMIT_DB_PASSWORD}
+      ROUTE_CALL_TIMEOUT: ${ROUTE_CALL_TIMEOUT}
+      ROUTE_MAX_RETRIES: ${ROUTE_MAX_RETRIES}
+      ROUTE_RETRY_BACKOFF: ${ROUTE_RETRY_BACKOFF}
+      ROUTE_CB_FAILURES: ${ROUTE_CB_FAILURES}
+      ROUTE_CB_OPEN_TIMEOUT: ${ROUTE_CB_OPEN_TIMEOUT}
+    depends_on:
+      permit-db:
+        condition: service_healthy
+      route-service:
+        condition: service_started
+    networks: [trek-net]
+
+  # ---------------------------------------------------------------- Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: api-gateway
+    environment:
+      GATEWAY_PORT: ${GATEWAY_PORT}
+      ROUTE_SERVICE_ADDR: route-service:${ROUTE_GRPC_PORT}
+      PERMIT_SERVICE_ADDR: permit-service:${PERMIT_GRPC_PORT}
+      GATEWAY_REQUEST_TIMEOUT: ${GATEWAY_REQUEST_TIMEOUT}
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"   # the ONLY port Postman needs
+    depends_on:
+      - route-service
+      - permit-service
+    networks: [trek-net]
+
+networks:
+  trek-net:
+
+volumes:
+  route-data:
+  permit-data:
